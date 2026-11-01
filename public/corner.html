@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your corner · Chat Fight</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="brand" href="/">CHAT <span>FIGHT</span></a>
+    <div><span class="badge" id="status">…</span> &nbsp; <span class="round" id="round"></span></div>
+  </header>
+
+  <section class="card">
+    <h1 id="title">Loading…</h1>
+    <p class="hint" id="context"></p>
+    <p class="hint">Ringside link for spectators: <a id="ringLink" href="#"></a></p>
+    <p class="err" id="fatal"></p>
+  </section>
+
+  <div class="row">
+    <section class="card corner red" id="corner-red"></section>
+    <section class="card corner blue" id="corner-blue"></section>
+  </div>
+
+  <!-- Setup: position, confidential, stubbornness, ready -->
+  <section class="card" id="setup">
+    <h2>Your corner</h2>
+    <label>Your position <small>3 lines. What you want, what you can live with. Your AI holds this.</small></label>
+    <textarea id="position" maxlength="1500" placeholder="Paid pilot, $2k for 30 days, credited against year one. Free pilot only if they commit to a Q1 decision."></textarea>
+    <label>Confidential <small>your AI may use this to reason but will never say it. Walk-away price, internal deadlines.</small></label>
+    <textarea id="confidential" maxlength="3000" placeholder="Walk-away is $1k. We need a logo by December."></textarea>
+    <label>Stubbornness <small id="stubLabel"></small></label>
+    <div class="stub"><span>1</span><input type="range" id="stubbornness" min="1" max="5" value="3"><span>5</span></div>
+    <div class="actions">
+      <button id="save" class="ghost">Save</button>
+      <button id="ready">Ready</button>
+      <span class="err" id="setupErr"></span>
+    </div>
+  </section>
+
+  <!-- Connect the AI -->
+  <section class="card" id="connect">
+    <h2>Connect your AI</h2>
+    <p class="hint">Add Chat Fight as a connector once, then paste the join prompt into a new chat. Your AI joins with its own memory and context, which is the whole point.</p>
+    <label>Connector URL (MCP)</label>
+    <div class="copy"><input type="text" id="mcpUrl" readonly><button class="ghost" id="copyMcp">Copy</button></div>
+    <label>Join prompt <small>paste this into your AI</small></label>
+    <div class="copy"><input type="text" id="joinPrompt" readonly><button class="ghost" id="copyJoin">Copy</button></div>
+    <div class="row" style="margin-top:10px">
+      <div>
+        <b>Claude</b>
+        <ol class="steps">
+          <li>Settings → Connectors → Add custom connector</li>
+          <li>Paste the connector URL, no auth, save</li>
+          <li>New chat, enable the connector, paste the join prompt</li>
+        </ol>
+      </div>
+      <div>
+        <b>ChatGPT</b>
+        <ol class="steps">
+          <li>Settings → Apps &amp; Connectors → Advanced → Developer mode on</li>
+          <li>Create connector with the URL, no auth</li>
+          <li>New chat, add the connector, paste the join prompt</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- Live controls -->
+  <section class="card" id="live">
+    <h2>Corner controls</h2>
+    <label>Whisper to your AI <small>private. Delivered on its next move.</small></label>
+    <div class="copy"><input type="text" id="whisper" maxlength="1000" placeholder="Don't move on price. Ask about their timeline."><button id="sendWhisper">Whisper</button></div>
+    <div id="whispers" class="hint" style="margin-top:6px"></div>
+    <div class="actions">
+      <button id="tapout" class="ghost">Tap out (take over yourself)</button>
+      <button id="bell" class="ghost">Ring the bell (get the scorecard now)</button>
+      <span class="err" id="liveErr"></span>
+    </div>
+  </section>
+
+  <!-- Humans have the floor -->
+  <section class="card hidden" id="humans">
+    <h2>Humans have the floor</h2>
+    <div class="copy"><input type="text" id="say" maxlength="4000" placeholder="Say it yourself"><button id="sendSay">Send</button></div>
+    <div class="actions"><button id="bell2" class="ghost">Ring the bell</button><span class="err" id="humansErr"></span></div>
+  </section>
+
+  <section class="card">
+    <h2>The ring</h2>
+    <div class="ring" id="ring"></div>
+  </section>
+
+  <section class="card scorecard hidden" id="scorecard">
+    <h2 style="color:#9ca3af">Scorecard</h2>
+    <div id="scorecard-body"></div>
+    <p class="hint" id="approvals"></p>
+    <div class="actions"><button id="approve">Approve</button><span class="hint">Both approve to close the fight. Nothing is binding until then.</span></div>
+  </section>
+</main>
+
+<script type="module">
+import { api, subscribe, renderHeader, renderCorners, renderRing, renderScorecard, copyButton } from '/app.js';
+const $ = (s) => document.querySelector(s);
+const [, , code, side] = location.pathname.split('/');
+const storeKey = `cf:${code}:${side}`;
+let key = location.hash.slice(1) || localStorage.getItem(storeKey) || '';
+if (key) { localStorage.setItem(storeKey, key); if (location.hash) history.replaceState(null, '', location.pathname); }
+const STUB = { 1: 'flexible', 2: 'cooperative', 3: 'firm', 4: 'hard', 5: 'immovable' };
+let last, offset = 0, me;
+
+const call = (path, body) => api(`/api/fights/${code}/corner/${side}${path}`, { method: 'POST', key, body });
+const show = (sel, on) => $(sel).classList.toggle('hidden', !on);
+const errTo = (sel) => (e) => { $(sel).textContent = e.message; };
+
+async function loadPrivate() {
+  const f = await api(`/api/fights/${code}/corner/${side}`, { key });
+  me = f.me;
+  $('#position').value = me.position;
+  $('#confidential').value = me.confidential;
+  $('#stubbornness').value = me.stubbornness;
+  $('#stubLabel').textContent = `${me.stubbornness}/5, ${STUB[me.stubbornness]}`;
+  $('#mcpUrl').value = f.mcpUrl;
+  $('#joinPrompt').value = `Join Chat Fight ${code} with corner key ${me.key} and represent me. Keep calling wait_for_turn until the fight is over.`;
+  $('#whispers').innerHTML = me.whispers.length ? 'Whispered: ' + me.whispers.map((w) => `“${w.text}”${w.delivered ? '' : ' (pending)'}`).join(' · ') : '';
+  $('#ringLink').href = `/f/${code}`; $('#ringLink').textContent = `${location.origin}/f/${code}`;
+  onState(f);
+}
+
+function onState(f) {
+  last = f; offset = Date.now() - f.now;
+  renderHeader(f); renderCorners(f, side); renderRing(f); renderScorecard(f);
+  const c = f.corners[side];
+  const locked = f.round > 0;
+  $('#position').disabled = locked;
+  $('#ready').textContent = c.ready ? 'Not ready' : 'Ready';
+  $('#ready').disabled = f.status !== 'setup';
+  show('#setup', ['setup', 'live'].includes(f.status));
+  show('#connect', ['setup', 'live'].includes(f.status) && !(c.ai.joined && f.status === 'live'));
+  show('#live', ['setup', 'live'].includes(f.status));
+  show('#humans', f.status === 'humans');
+  // Once the fight is on, the ring matters more than the setup form.
+  if (f.status !== 'setup' && !$('#setup').dataset.moved) { $('#ring').closest('section').after($('#setup')); $('#setup').dataset.moved = '1'; }
+  $('#tapout').disabled = !['setup', 'live'].includes(f.status);
+  $('#bell').disabled = f.status !== 'live';
+  $('#approve').disabled = f.status !== 'scorecard' || (f.scorecard && f.scorecard.approvals[side]);
+}
+
+$('#stubbornness').addEventListener('input', (e) => { $('#stubLabel').textContent = `${e.target.value}/5, ${STUB[e.target.value]}`; });
+$('#save').onclick = () => call('', { position: $('#position').value, confidential: $('#confidential').value, stubbornness: $('#stubbornness').value }).then(loadPrivate).catch(errTo('#setupErr'));
+$('#ready').onclick = () => call('', { position: $('#position').value, confidential: $('#confidential').value, stubbornness: $('#stubbornness').value, ready: !last.corners[side].ready }).then(loadPrivate).catch(errTo('#setupErr'));
+$('#sendWhisper').onclick = () => call('/whisper', { text: $('#whisper').value }).then(() => { $('#whisper').value = ''; return loadPrivate(); }).catch(errTo('#liveErr'));
+$('#tapout').onclick = () => confirm('Tap out? The AIs stop and you two type directly.') && call('/tapout').catch(errTo('#liveErr'));
+$('#bell').onclick = () => confirm('Ring the bell? The judge writes the scorecard now.') && call('/bell').catch(errTo('#liveErr'));
+$('#bell2').onclick = () => confirm('Ring the bell?') && call('/bell').catch(errTo('#humansErr'));
+$('#sendSay').onclick = () => call('/say', { text: $('#say').value }).then(() => { $('#say').value = ''; }).catch(errTo('#humansErr'));
+$('#say').addEventListener('keydown', (e) => e.key === 'Enter' && $('#sendSay').click());
+$('#whisper').addEventListener('keydown', (e) => e.key === 'Enter' && $('#sendWhisper').click());
+$('#approve').onclick = () => call('/approve').catch(errTo('#liveErr'));
+copyButton($('#copyMcp'), () => $('#mcpUrl').value);
+copyButton($('#copyJoin'), () => $('#joinPrompt').value);
+
+if (!key) { $('#fatal').textContent = 'This corner link has no key. Ask for the full link (it ends with #KEY).'; }
+else {
+  loadPrivate().then(() => subscribe(code, onState)).catch((e) => { $('#fatal').textContent = e.message; });
+  setInterval(() => { if (last) { last.now = Date.now() - offset; renderCorners(last, side); } }, 5000);
+}
+</script>
+</body>
+</html>

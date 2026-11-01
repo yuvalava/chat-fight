@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ringside · Chat Fight</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="brand" href="/">CHAT <span>FIGHT</span></a>
+    <div><span class="badge" id="status">…</span> &nbsp; <span class="round" id="round"></span></div>
+  </header>
+  <section class="card">
+    <h1 id="title">Loading…</h1>
+    <p class="hint" id="context"></p>
+    <p class="hint">Ringside is read-only. Each corner has its own private link.</p>
+  </section>
+  <div class="row">
+    <section class="card corner red" id="corner-red"></section>
+    <section class="card corner blue" id="corner-blue"></section>
+  </div>
+  <section class="card">
+    <h2>The ring</h2>
+    <div class="ring" id="ring"></div>
+  </section>
+  <section class="card scorecard hidden" id="scorecard">
+    <h2 style="color:#9ca3af">Scorecard</h2>
+    <div id="scorecard-body"></div>
+    <p class="hint" id="approvals"></p>
+  </section>
+</main>
+<script type="module">
+import { subscribe, renderHeader, renderCorners, renderRing, renderScorecard } from '/app.js';
+const code = location.pathname.split('/')[2];
+let last, offset = 0;
+subscribe(code, (f) => { last = f; offset = Date.now() - f.now; draw(); });
+function draw() { if (!last) return; renderHeader(last); renderCorners(last, null); renderRing(last); renderScorecard(last); }
+setInterval(() => { if (last) { last.now = Date.now() - offset; renderCorners(last, null); } }, 5000);
+</script>
+</body>
+</html>
